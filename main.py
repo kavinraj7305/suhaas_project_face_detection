@@ -1,3 +1,4 @@
+import argparse
 import math
 import pickle
 import time
@@ -15,7 +16,7 @@ EMBEDDINGS_PATH = Path("embeddings.pkl")
 MODEL_NAME_FALLBACK = "Facenet512"
 PROCESS_INTERVAL_SEC = 2.0
 MIN_LOG_GAP_SEC = 120
-MATCH_THRESHOLD = 0.30
+MATCH_THRESHOLD = 0.40
 FRAME_SCALE = 0.5
 
 
@@ -27,7 +28,7 @@ def cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
 
 
 def best_match(
-    query_embedding: np.ndarray, known: dict[str, list[np.ndarray]]
+    query_embedding: np.ndarray, known: dict[str, list[np.ndarray]], threshold: float
 ) -> tuple[str, float]:
     best_name = "unknown"
     best_distance = math.inf
@@ -39,7 +40,7 @@ def best_match(
                 best_distance = dist
                 best_name = person
 
-    if best_distance > MATCH_THRESHOLD:
+    if best_distance > threshold:
         return "unknown", best_distance
     return best_name, best_distance
 
@@ -83,7 +84,31 @@ def write_attendance_report(
     print(out_df.to_string(index=False))
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Live face attendance prototype")
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=MATCH_THRESHOLD,
+        help="Cosine distance threshold. Lower=stricter, higher=more tolerant (default: 0.40)",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=PROCESS_INTERVAL_SEC,
+        help="Seconds between recognition checks (default: 2.0)",
+    )
+    parser.add_argument(
+        "--min-log-gap",
+        type=int,
+        default=MIN_LOG_GAP_SEC,
+        help="Minimum seconds between timestamp logs for same person (default: 120)",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     model_name, known_embeddings = load_known_embeddings()
     tracked_people = sorted(known_embeddings.keys())
     attendance: dict[str, list[str]] = defaultdict(list)
@@ -108,7 +133,7 @@ def main() -> None:
         display_frame = frame.copy()
         now = time.time()
 
-        if now - last_process_at >= PROCESS_INTERVAL_SEC:
+        if now - last_process_at >= args.interval:
             resized = cv2.resize(
                 frame, (0, 0), fx=FRAME_SCALE, fy=FRAME_SCALE, interpolation=cv2.INTER_AREA
             )
@@ -136,7 +161,7 @@ def main() -> None:
                         enforce_detection=False,
                     )
                     embedding = np.array(rep[0]["embedding"], dtype=np.float32)
-                    name, distance = best_match(embedding, known_embeddings)
+                    name, distance = best_match(embedding, known_embeddings, args.threshold)
                 except Exception:  # noqa: BLE001
                     name, distance = "unknown", 1.0
 
@@ -147,7 +172,7 @@ def main() -> None:
             # Every processing cycle counts as one attendance check per known person.
             for person in tracked_people:
                 checks_per_person[person] += 1
-                if person in detected_names and now - last_logged_at[person] >= MIN_LOG_GAP_SEC:
+                if person in detected_names and now - last_logged_at[person] >= args.min_log_gap:
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     attendance[person].append(timestamp)
                     last_logged_at[person] = now

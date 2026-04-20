@@ -1,5 +1,4 @@
 import argparse
-import os
 from pathlib import Path
 
 import cv2
@@ -42,7 +41,9 @@ def main() -> None:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
 
-        for (x, y, w, h) in faces:
+        if len(faces) > 0:
+            # Pick largest detected face so background faces do not pollute training.
+            x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
             cv2.rectangle(frame, (x, y), (x + w, y + h), (60, 220, 60), 2)
 
             # Save one crop every few frames so images differ naturally.
