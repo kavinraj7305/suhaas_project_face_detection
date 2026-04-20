@@ -1,0 +1,41 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Tool caches and local state
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.ipynb_checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project runtime artifacts
+attendance_report.csv
+embeddings.pkl
+
+# Local face dataset (can be large/private)
+dataset/
