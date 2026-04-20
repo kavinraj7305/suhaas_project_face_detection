@@ -20,6 +20,53 @@ MATCH_THRESHOLD = 0.40
 FRAME_SCALE = 0.5
 
 
+def detect_faces(
+    gray_image: np.ndarray,
+    frontal_cascade: cv2.CascadeClassifier,
+    profile_cascade: cv2.CascadeClassifier,
+) -> list[tuple[int, int, int, int]]:
+    faces: list[tuple[int, int, int, int]] = []
+
+    frontal = frontal_cascade.detectMultiScale(
+        gray_image, scaleFactor=1.2, minNeighbors=5, minSize=(40, 40)
+    )
+    for x, y, w, h in frontal:
+        faces.append((int(x), int(y), int(w), int(h)))
+
+    profile = profile_cascade.detectMultiScale(
+        gray_image, scaleFactor=1.2, minNeighbors=4, minSize=(40, 40)
+    )
+    for x, y, w, h in profile:
+        faces.append((int(x), int(y), int(w), int(h)))
+
+    # Detect opposite profile by flipping image.
+    flipped = cv2.flip(gray_image, 1)
+    flipped_profile = profile_cascade.detectMultiScale(
+        flipped, scaleFactor=1.2, minNeighbors=4, minSize=(40, 40)
+    )
+    width = gray_image.shape[1]
+    for x, y, w, h in flipped_profile:
+        rx = width - (x + w)
+        faces.append((int(rx), int(y), int(w), int(h)))
+
+    # Deduplicate very close detections by center distance.
+    deduped: list[tuple[int, int, int, int]] = []
+    for cand in sorted(faces, key=lambda b: b[2] * b[3], reverse=True):
+        cx = cand[0] + cand[2] // 2
+        cy = cand[1] + cand[3] // 2
+        too_close = False
+        for kept in deduped:
+            kx = kept[0] + kept[2] // 2
+            ky = kept[1] + kept[3] // 2
+            if abs(cx - kx) < 30 and abs(cy - ky) < 30:
+                too_close = True
+                break
+        if not too_close:
+            deduped.append(cand)
+
+    return deduped
+
+
 def cosine_distance(v1: np.ndarray, v2: np.ndarray) -> float:
     denom = np.linalg.norm(v1) * np.linalg.norm(v2)
     if denom == 0:
@@ -115,8 +162,10 @@ def main() -> None:
     checks_per_person: dict[str, int] = {name: 0 for name in tracked_people}
     last_logged_at: dict[str, float] = {name: 0.0 for name in tracked_people}
 
-    cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    face_cascade = cv2.CascadeClassifier(cascade_path)
+    frontal_cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    profile_cascade_path = cv2.data.haarcascades + "haarcascade_profileface.xml"
+    frontal_cascade = cv2.CascadeClassifier(frontal_cascade_path)
+    profile_cascade = cv2.CascadeClassifier(profile_cascade_path)
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         raise RuntimeError("Unable to open webcam.")
@@ -138,7 +187,7 @@ def main() -> None:
                 frame, (0, 0), fx=FRAME_SCALE, fy=FRAME_SCALE, interpolation=cv2.INTER_AREA
             )
             gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
+            faces = detect_faces(gray, frontal_cascade, profile_cascade)
 
             detected_names: set[str] = set()
             latest_results = []
