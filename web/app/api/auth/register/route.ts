@@ -5,27 +5,32 @@ import { hashPassword, setSessionCookie, signToken } from "@/lib/auth";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!name || !password) {
-      return NextResponse.json({ error: "Name and password are required" }, { status: 400 });
+    if (!email || !password) {
+      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+    }
+    if (!emailRegex.test(email)) {
+      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
     const existing = await db.query(
-      "SELECT id FROM users WHERE role='teacher' AND LOWER(name)=LOWER($1)",
-      [name]
+      "SELECT id FROM users WHERE role='teacher' AND LOWER(email)=LOWER($1)",
+      [email]
     );
     if (existing.rowCount) {
-      return NextResponse.json({ error: "Teacher already exists" }, { status: 409 });
+      return NextResponse.json({ error: "Teacher with this email already exists" }, { status: 409 });
     }
 
     const passwordHash = await hashPassword(password);
+    const derivedName = email.split("@")[0];
     const inserted = await db.query(
-      `INSERT INTO users (name, role, password_hash)
-       VALUES ($1, 'teacher', $2)
+      `INSERT INTO users (name, email, role, password_hash)
+       VALUES ($1, $2, 'teacher', $3)
        RETURNING id, name, role`,
-      [name, passwordHash]
+      [derivedName, email, passwordHash]
     );
 
     const teacher = inserted.rows[0];

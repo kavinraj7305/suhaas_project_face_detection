@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+python-dotenv
+qdrant-client
+deepface
+opencv-python
+numpy
+psycopg[binary]

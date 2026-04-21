@@ -1,9 +1,6 @@
-import { mkdir, rm, writeFile } from "fs/promises";
-import { join, resolve } from "path";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { scanAttendanceFromFrames } from "@/lib/python";
+import { callPythonApi } from "@/lib/pythonApi";
 import { todayDateString } from "@/lib/date";
 
 export async function GET(req: Request) {
@@ -14,21 +11,40 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const day = searchParams.get("day");
+  const section = String(searchParams.get("section") || "").trim();
+  const department = String(searchParams.get("department") || "").trim();
+  const passingOutYear = Number(searchParams.get("passingOutYear") || 0);
+  if (!day) {
+    return NextResponse.json({ scans: [] });
+  }
 
-  const query = day
-    ? `SELECT id, day, report_json, created_at
-       FROM attendance_scans
-       WHERE teacher_id = $1 AND day = $2
-       ORDER BY created_at DESC
-       LIMIT 10`
-    : `SELECT id, day, report_json, created_at
-       FROM attendance_scans
-       WHERE teacher_id = $1
-       ORDER BY created_at DESC
-       LIMIT 10`;
-  const params = day ? [user.userId, day] : [user.userId];
-  const rows = await db.query(query, params);
-  return NextResponse.json({ scans: rows.rows });
+  try {
+    const pythonData = await callPythonApi<{
+      ok: boolean;
+      scans: unknown[];
+      report: {
+        day: string;
+        section: string | null;
+        department: string | null;
+        passingOutYear: number | null;
+        summary: { present: number; absent: number; od: number };
+        rows: { rollNumber: string; status: "present" | "absent" | "od" }[];
+      };
+    }>("/attendance/full-report/get", {
+      teacher_id: user.userId,
+      day,
+      section,
+      department,
+      passing_out_year: passingOutYear
+    });
+
+    return NextResponse.json({
+      scans: pythonData.scans || [],
+      report: pythonData.report
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to fetch report", details: String(error) }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -40,90 +56,39 @@ export async function POST(req: Request) {
   const body = await req.json();
   const images = Array.isArray(body.images) ? body.images : [];
   const day = String(body.day || todayDateString());
+  const scanSeconds = Math.max(3, Number(body.scanSeconds || 10));
+  const section = String(body.section || "").trim();
+  const department = String(body.department || "").trim();
+  const passingOutYear = Number(body.passingOutYear || 0);
   if (images.length === 0) {
     return NextResponse.json({ error: "No frames provided" }, { status: 400 });
   }
 
-  const studentsRes = await db.query(
-    `SELECT s.id AS student_id, s.roll_number
-     FROM students s
-     WHERE s.teacher_id = $1
-     ORDER BY s.roll_number ASC`,
-    [user.userId]
-  );
-  const students = studentsRes.rows as { student_id: number; roll_number: string }[];
-  if (students.length === 0) {
-    return NextResponse.json({ error: "No students found for teacher" }, { status: 400 });
-  }
-
-  const allowedRolls = students.map((s) => s.roll_number.toLowerCase());
-  const tempDir = resolve(process.cwd(), "..", "temp_frames", `${user.userId}-${Date.now()}`);
-  await mkdir(tempDir, { recursive: true });
-
   try {
-    let written = 0;
-    for (let i = 0; i < images.length; i += 1) {
-      const dataUrl = String(images[i]);
-      const comma = dataUrl.indexOf(",");
-      if (comma === -1) continue;
-      const base64 = dataUrl.slice(comma + 1);
-      const buffer = Buffer.from(base64, "base64");
-      const outPath = join(tempDir, `frame_${String(i + 1).padStart(3, "0")}.jpg`);
-      await writeFile(outPath, buffer);
-      written += 1;
-    }
-
-    if (!written) {
-      return NextResponse.json({ error: "No valid frames" }, { status: 400 });
-    }
-
-    const scan = await scanAttendanceFromFrames(tempDir, allowedRolls, 0.45);
-    const presentRolls = new Set((scan.present_rolls || []).map((r) => r.toLowerCase()));
-
-    const odRes = await db.query(
-      `SELECT s.roll_number
-       FROM od_requests o
-       JOIN students s ON s.id = o.student_id
-       WHERE s.teacher_id = $1
-         AND o.day = $2
-         AND o.decision = 'approved'`,
-      [user.userId, day]
-    );
-    const odRolls = new Set((odRes.rows as { roll_number: string }[]).map((r) => r.roll_number.toLowerCase()));
-
-    const statusRows: { rollNumber: string; status: "present" | "absent" | "od" }[] = [];
-    for (const student of students) {
-      const roll = student.roll_number.toLowerCase();
-      const status: "present" | "absent" | "od" = odRolls.has(roll)
-        ? "od"
-        : presentRolls.has(roll)
-          ? "present"
-          : "absent";
-      statusRows.push({ rollNumber: student.roll_number, status });
-
-      await db.query(
-        `INSERT INTO attendance (student_id, day, status)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (student_id, day)
-         DO UPDATE SET status = EXCLUDED.status`,
-        [student.student_id, day, status]
-      );
-    }
-
-    await db.query(
-      `INSERT INTO attendance_scans (teacher_id, day, report_json)
-       VALUES ($1, $2, $3::jsonb)`,
-      [user.userId, day, JSON.stringify(statusRows)]
-    );
+    const pythonData = await callPythonApi<{
+      ok: boolean;
+      day: string;
+      scanSeconds: number;
+      section: string | null;
+      department: string | null;
+      passingOutYear: number | null;
+      summary: { present: number; absent: number; od: number };
+      report: { rollNumber: string; status: "present" | "absent" | "od" }[];
+    }>("/attendance/full-report", {
+      teacher_id: user.userId,
+      day,
+      images,
+      section,
+      department,
+      passing_out_year: passingOutYear,
+      scan_seconds: scanSeconds,
+      threshold: 0.45
+    });
 
     return NextResponse.json({
-      ok: true,
-      day,
-      report: statusRows
+      ...pythonData
     });
   } catch (error) {
     return NextResponse.json({ error: "Attendance scan failed", details: String(error) }, { status: 500 });
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
   }
 }

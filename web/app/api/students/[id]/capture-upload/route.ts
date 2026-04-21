@@ -1,13 +1,7 @@
-import { mkdir, writeFile } from "fs/promises";
-import { join, resolve } from "path";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { rebuildEmbeddingsInBackground } from "@/lib/python";
-
-function datasetPathFor(rollNumber: string) {
-  return resolve(process.cwd(), "..", "dataset", rollNumber.toLowerCase());
-}
+import { callPythonApi } from "@/lib/pythonApi";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const user = getSessionUser();
@@ -30,27 +24,41 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "Student not found" }, { status: 404 });
   }
 
-  const rollNumber = String(row.rows[0].roll_number);
-  const outDir = datasetPathFor(rollNumber);
-  await mkdir(outDir, { recursive: true });
-
-  const ts = Date.now();
-  let saved = 0;
-  for (let i = 0; i < images.length; i += 1) {
-    const dataUrl = String(images[i]);
-    const commaIndex = dataUrl.indexOf(",");
-    if (commaIndex === -1) continue;
-    const base64 = dataUrl.slice(commaIndex + 1);
-    const buffer = Buffer.from(base64, "base64");
-    const outPath = join(outDir, `web_${ts}_${String(i + 1).padStart(3, "0")}.jpg`);
-    await writeFile(outPath, buffer);
-    saved += 1;
+  const studentRes = await db.query(
+    `SELECT s.roll_number, u.name
+     FROM students s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1 AND s.teacher_id = $2`,
+    [studentId, user.userId]
+  );
+  if (!studentRes.rowCount) {
+    return NextResponse.json({ error: "Student not found" }, { status: 404 });
   }
+  const student = studentRes.rows[0] as { roll_number: string; name: string };
 
-  if (saved === 0) {
-    return NextResponse.json({ error: "No valid images uploaded" }, { status: 400 });
+  try {
+    const pythonResponse = await callPythonApi<{
+      ok: boolean;
+      saved_images: number;
+      embedding_count: number;
+      point_id: string;
+    }>(`/students/${student.roll_number.toLowerCase()}/images`, {
+      images,
+      student_name: student.name,
+      teacher_id: String(user.userId),
+      rebuild_embeddings: true
+    });
+
+    return NextResponse.json({
+      ok: true,
+      saved: pythonResponse.saved_images,
+      embeddingCount: pythonResponse.embedding_count,
+      pointId: pythonResponse.point_id
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: "Capture upload to Python API failed", details: String(error) },
+      { status: 500 }
+    );
   }
-
-  rebuildEmbeddingsInBackground();
-  return NextResponse.json({ ok: true, saved, embeddingStatus: "queued" });
 }

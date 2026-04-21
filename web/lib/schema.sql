@@ -1,11 +1,12 @@
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
+  email TEXT UNIQUE,
   role TEXT NOT NULL CHECK (role IN ('teacher', 'student')),
   roll_number TEXT UNIQUE,
   password_hash TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+); 
 
 CREATE TABLE IF NOT EXISTS students (
   id SERIAL PRIMARY KEY,

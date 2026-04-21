@@ -6,12 +6,12 @@ body {
   margin: 0;
   font-family: Inter, Segoe UI, Arial, sans-serif;
   background:
-    radial-gradient(circle at 10% 20%, #dbeafe 0%, transparent 35%),
-    radial-gradient(circle at 85% 15%, #fde68a 0%, transparent 30%),
-    radial-gradient(circle at 85% 85%, #fbcfe8 0%, transparent 35%),
-    radial-gradient(circle at 15% 85%, #bbf7d0 0%, transparent 30%),
-    linear-gradient(180deg, #f8fbff 0%, #eef2ff 100%);
-  color: #0f172a;
+    radial-gradient(circle at 10% 20%, #1e3a8a 0%, transparent 35%),
+    radial-gradient(circle at 85% 15%, #4c1d95 0%, transparent 30%),
+    radial-gradient(circle at 85% 85%, #831843 0%, transparent 35%),
+    radial-gradient(circle at 15% 85%, #14532d 0%, transparent 30%),
+    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  color: #e2e8f0;
 }
 
 main {
@@ -21,23 +21,24 @@ main {
 }
 
 .card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
   border-radius: 16px;
   padding: 20px;
   margin-bottom: 16px;
-  border: 1px solid #dbe4ff;
+  border: 1px solid #334155;
   box-shadow:
-    0 10px 24px rgba(15, 23, 42, 0.08),
-    0 2px 8px rgba(37, 99, 235, 0.08);
+    0 10px 24px rgba(2, 6, 23, 0.5),
+    0 2px 8px rgba(30, 64, 175, 0.2);
 }
 
 .hero-card {
   background: linear-gradient(135deg, #2563eb 0%, #7c3aed 45%, #db2777 100%);
-  color: #fff;
+  color: #f8fafc;
+  border: 1px solid #6366f1;
 }
 
 .hero-card p {
-  color: #e0e7ff;
+  color: #e2e8f0;
 }
 
 .card h1,
@@ -47,7 +48,7 @@ main {
 }
 
 .card h2 {
-  color: #1e3a8a;
+  color: #c4b5fd;
   font-weight: 800;
   letter-spacing: 0.01em;
 }
@@ -85,16 +86,17 @@ textarea {
   margin-top: 4px;
   margin-bottom: 8px;
   padding: 10px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #475569;
   border-radius: 10px;
-  background: #fff;
+  background: #0b1220;
+  color: #e2e8f0;
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid #bfdbfe;
-  border-color: #3b82f6;
+  outline: 2px solid #60a5fa;
+  border-color: #60a5fa;
 }
 
 button {
@@ -102,7 +104,7 @@ button {
   border-radius: 10px;
   padding: 10px 14px;
   background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-  color: #fff;
+  color: #ffffff;
   cursor: pointer;
   box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
   transition: transform 0.14s ease, opacity 0.2s ease, box-shadow 0.2s ease;
@@ -121,11 +123,12 @@ button:disabled {
 
 .button-secondary {
   background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  color: #f8fafc;
 }
 
 .button-ghost {
-  background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
-  color: #111827;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #e2e8f0;
   box-shadow: none;
 }
 
@@ -147,18 +150,18 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid #334155;
   text-align: left;
   padding: 10px;
-  background: #fff;
+  background: #0f172a;
 }
 
 th {
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #334155;
-  background: #eef2ff;
+  color: #cbd5e1;
+  background: #111827;
 }
 
 .status-badge {
@@ -171,30 +174,80 @@ th {
 }
 
 .status-present {
-  color: #166534;
-  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  color: #dcfce7;
+  background: linear-gradient(135deg, #166534 0%, #15803d 100%);
 }
 
 .status-absent {
-  color: #991b1b;
-  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  color: #fee2e2;
+  background: linear-gradient(135deg, #991b1b 0%, #b91c1c 100%);
 }
 
 .status-od {
-  color: #92400e;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  color: #fef3c7;
+  background: linear-gradient(135deg, #92400e 0%, #b45309 100%);
 }
 
 .status-pending {
-  color: #1e40af;
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  color: #dbeafe;
+  background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
 }
 
 .message-banner {
   margin-top: 8px;
   border-radius: 10px;
   padding: 10px 12px;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  color: #1e3a8a;
-  border: 1px solid #93c5fd;
+  background: linear-gradient(135deg, #172554 0%, #1e3a8a 100%);
+  color: #dbeafe;
+  border: 1px solid #3b82f6;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.auth-left {
+  border-radius: 18px;
+  padding: 36px;
+  background: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 45%, #be185d 100%);
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.auth-left h1 {
+  font-size: 42px;
+  margin-bottom: 8px;
+}
+
+.auth-left p {
+  color: #e2e8f0;
+  max-width: 560px;
+  line-height: 1.6;
+}
+
+.auth-right {
+  border-radius: 18px;
+  padding: 28px;
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+  border: 1px solid #334155;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+  }
+  .auth-left h1 {
+    font-size: 34px;
+  }
 }

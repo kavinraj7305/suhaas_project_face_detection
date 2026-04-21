@@ -11,9 +11,12 @@ export default function StudentDashboard({
 }) {
   const [message, setMessage] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [submitting, setSubmitting] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function submitOd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSubmitting(true);
     const form = new FormData(event.currentTarget);
     form.set("rollNumber", rollNumber);
     form.set("day", date);
@@ -25,13 +28,16 @@ export default function StudentDashboard({
     const data = await res.json();
     if (!res.ok) {
       setMessage(data.error || "OD request failed");
+      setSubmitting(false);
       return;
     }
     setMessage("OD request submitted.");
     (event.currentTarget as HTMLFormElement).reset();
+    setSubmitting(false);
   }
 
   async function logout() {
+    setLoggingOut(true);
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/";
   }
@@ -43,8 +49,8 @@ export default function StudentDashboard({
         <p>
           Welcome, {studentName} ({rollNumber})
         </p>
-        <button className="button-ghost" onClick={logout}>
-          Logout
+        <button className="button-ghost" disabled={loggingOut} onClick={logout}>
+          {loggingOut ? "Logging out..." : "Logout"}
         </button>
       </div>
 
@@ -67,7 +73,9 @@ export default function StudentDashboard({
               Letter (image/png/jpg)
               <input type="file" name="letter" accept="image/*" required />
             </label>
-            <button type="submit">Submit OD</button>
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Submitting..." : "Submit OD"}
+            </button>
           </form>
           {message ? <p className="message-banner">{message}</p> : null}
         </div>

@@ -39,10 +39,10 @@ npm run dev
 ```
 
 Open `/` and click **Register Teacher**, then create teacher with:
-- name: `Teacher1`
+- email: `teacher1@college.edu`
 - password: `Teacher@123`
 
-After that, login from `/` as teacher using the same credentials.
+After that, login from `/` as teacher using the same email/password.
 
 ## 4) Main flow
 

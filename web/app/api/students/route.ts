@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser, hashPassword } from "@/lib/auth";
-import { generatePassword } from "@/lib/password";
-import { captureStudentPhotos, rebuildEmbeddings } from "@/lib/python";
 
 export async function GET() {
   const user = getSessionUser();
@@ -33,16 +31,13 @@ export async function POST(req: Request) {
   const section = String(body.section || "").trim();
   const department = String(body.department || "").trim();
   const passingOutYear = Number(body.passingOutYear);
-  const samples = Number(body.samples || 40);
 
-  if (!name || !rollNumber || !section || !department || !passingOutYear || samples < 1) {
+  if (!name || !rollNumber || !section || !department || !passingOutYear) {
     return NextResponse.json({ error: "Missing student fields" }, { status: 400 });
   }
 
-  const plainPassword = generatePassword(10);
+  const plainPassword = `${rollNumber}${name.replace(/\s+/g, "")}`;
   const passwordHash = await hashPassword(plainPassword);
-  let createdUserId: number | null = null;
-
   const client = await db.connect();
   try {
     await client.query("BEGIN");
@@ -53,12 +48,10 @@ export async function POST(req: Request) {
        RETURNING id`,
       [name, rollNumber, passwordHash]
     );
-    createdUserId = userInsert.rows[0].id as number;
-
     await client.query(
       `INSERT INTO students (user_id, teacher_id, roll_number, section, department, passing_out_year)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [createdUserId, user.userId, rollNumber, section, department, passingOutYear]
+      [userInsert.rows[0].id, user.userId, rollNumber, section, department, passingOutYear]
     );
 
     await client.query("COMMIT");
@@ -69,25 +62,9 @@ export async function POST(req: Request) {
     client.release();
   }
 
-  try {
-    await captureStudentPhotos(rollNumber, samples);
-    await rebuildEmbeddings();
-  } catch (error) {
-    if (createdUserId) {
-      await db.query("DELETE FROM users WHERE id = $1", [createdUserId]);
-    }
-    return NextResponse.json(
-      {
-        error: "Student photos/embeddings failed. Student creation was reverted.",
-        details: String(error)
-      },
-      { status: 500 }
-    );
-  }
-
   return NextResponse.json({
     ok: true,
     generatedPassword: plainPassword,
-    info: "Photos captured and embeddings rebuilt."
+    info: "Student created. Use Open Camera button to capture photos from browser webcam."
   });
 }

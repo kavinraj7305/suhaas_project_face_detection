@@ -15,7 +15,7 @@ export async function POST(req: Request) {
 
     const query =
       role === "teacher"
-        ? "SELECT id, name, role, password_hash FROM users WHERE role='teacher' AND LOWER(name)=LOWER($1)"
+        ? "SELECT id, name, role, password_hash FROM users WHERE role='teacher' AND LOWER(email)=LOWER($1)"
         : "SELECT id, name, role, roll_number, password_hash FROM users WHERE role='student' AND LOWER(roll_number)=LOWER($1)";
 
     const result = await db.query(query, [identifier]);

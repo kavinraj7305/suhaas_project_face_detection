@@ -34,10 +34,25 @@ type ScanStatusRow = {
   status: "present" | "absent" | "od";
 };
 
+type ScanSummary = {
+  present: number;
+  absent: number;
+  od: number;
+};
+
 type StoredScan = {
   id: number;
   day: string;
-  report_json: ScanStatusRow[];
+  report_json:
+    | ScanStatusRow[]
+    | {
+        scanSeconds?: number;
+        section?: string | null;
+        department?: string | null;
+        passingOutYear?: number | null;
+        summary?: { present: number; absent: number; od: number };
+        rows?: ScanStatusRow[];
+      };
   created_at: string;
 };
 
@@ -60,34 +75,51 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
   const [captureSamples, setCaptureSamples] = useState(20);
   const [scanMode, setScanMode] = useState(false);
   const [scanSecondsLeft, setScanSecondsLeft] = useState(10);
+  const [scanDurationSec, setScanDurationSec] = useState(10);
+  const [scanSection, setScanSection] = useState("");
+  const [scanDepartment, setScanDepartment] = useState("");
+  const [scanYear, setScanYear] = useState<number | "">("");
   const [scanReport, setScanReport] = useState<ScanStatusRow[]>([]);
+  const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
   const [scanHistory, setScanHistory] = useState<StoredScan[]>([]);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [loadingData, setLoadingData] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   async function loadAll() {
-    const [studentsRes, attendanceRes, odRes, scanRes] = await Promise.all([
-      fetch("/api/students"),
-      fetch(`/api/attendance?day=${date}`),
-      fetch("/api/od-requests"),
-      fetch(`/api/attendance/scan?day=${date}`)
-    ]);
-    const studentsData = await studentsRes.json();
-    const attendanceData = await attendanceRes.json();
-    const odData = await odRes.json();
-    const scanData = await scanRes.json();
+    setLoadingData(true);
+    try {
+      const [studentsRes, attendanceRes, odRes, scanRes] = await Promise.all([
+        fetch("/api/students"),
+        fetch(`/api/attendance?day=${date}`),
+        fetch("/api/od-requests"),
+        fetch(
+          `/api/attendance/scan?day=${date}&section=${encodeURIComponent(scanSection)}&department=${encodeURIComponent(
+            scanDepartment
+          )}&passingOutYear=${scanYear || 0}`
+        )
+      ]);
+      const studentsData = await studentsRes.json();
+      const attendanceData = await attendanceRes.json();
+      const odData = await odRes.json();
+      const scanData = await scanRes.json();
 
-    setStudents(studentsData.students || []);
-    setAttendance(attendanceData.rows || []);
-    setOdRequests(odData.requests || []);
-    setScanHistory(scanData.scans || []);
+      setStudents(studentsData.students || []);
+      setAttendance(attendanceData.rows || []);
+      setOdRequests(odData.requests || []);
+      setScanHistory(scanData.scans || []);
+      setScanReport(scanData?.report?.rows || []);
+      setScanSummary(scanData?.report?.summary || null);
+    } finally {
+      setLoadingData(false);
+    }
   }
 
   useEffect(() => {
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+  }, [date, scanSection, scanDepartment, scanYear]);
 
   async function addStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,10 +131,9 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
       rollNumber: form.get("rollNumber"),
       section: form.get("section"),
       department: form.get("department"),
-      passingOutYear: form.get("passingOutYear"),
-      samples: form.get("samples")
+      passingOutYear: form.get("passingOutYear")
     };
-    setMessage("Opening camera to capture student photos. Complete capture window...");
+    setMessage("Creating student...");
     try {
       const res = await fetch("/api/students", {
         method: "POST",
@@ -115,7 +146,9 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
         setMessage(`${data.error || "Failed to add student"} ${detail}`.trim());
         return;
       }
-      setMessage(`Student created. Generated password: ${data.generatedPassword}. ${data.info || ""}`);
+      setMessage(
+        `Student created. Generated password: ${data.generatedPassword}. Now click Open Camera for this student.`
+      );
       formElement.reset();
       await loadAll();
     } finally {
@@ -203,8 +236,9 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
     }
     setBusy(true);
     setScanMode(true);
-    setScanSecondsLeft(10);
-    setMessage("Starting 10-second attendance scan...");
+    const duration = Math.max(3, Math.min(60, Number(scanDurationSec || 10)));
+    setScanSecondsLeft(duration);
+    setMessage(`Starting ${duration}-second attendance scan...`);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       streamRef.current = stream;
@@ -222,10 +256,11 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
       if (!context) throw new Error("Canvas context unavailable");
 
       const images: string[] = [];
-      for (let i = 0; i < 20; i += 1) {
+      const totalFrames = duration * 2;
+      for (let i = 0; i < totalFrames; i += 1) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         images.push(canvas.toDataURL("image/jpeg", 0.7));
-        const seconds = Math.max(0, 10 - Math.floor((i + 1) / 2));
+        const seconds = Math.max(0, duration - Math.floor((i + 1) / 2));
         setScanSecondsLeft(seconds);
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
       }
@@ -233,7 +268,14 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
       const res = await fetch("/api/attendance/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ day: date, images })
+        body: JSON.stringify({
+          day: date,
+          images,
+          section: scanSection,
+          department: scanDepartment,
+          scanSeconds: duration,
+          passingOutYear: scanYear || 0
+        })
       });
       const data = await res.json();
       if (!res.ok) {
@@ -243,10 +285,15 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
       }
 
       setScanReport(data.report || []);
-      const presentCount = (data.report || []).filter((r: ScanStatusRow) => r.status === "present").length;
-      const odCount = (data.report || []).filter((r: ScanStatusRow) => r.status === "od").length;
-      const absentCount = (data.report || []).filter((r: ScanStatusRow) => r.status === "absent").length;
-      setMessage(`Attendance done. Present: ${presentCount}, OD: ${odCount}, Absent: ${absentCount}`);
+      const summary = data.summary || {
+        present: (data.report || []).filter((r: ScanStatusRow) => r.status === "present").length,
+        od: (data.report || []).filter((r: ScanStatusRow) => r.status === "od").length,
+        absent: (data.report || []).filter((r: ScanStatusRow) => r.status === "absent").length
+      };
+      setScanSummary(summary);
+      setMessage(
+        `Attendance done for ${duration}s. Present: ${summary.present}, OD: ${summary.od}, Absent: ${summary.absent}`
+      );
       await loadAll();
     } finally {
       stopBrowserCamera();
@@ -256,24 +303,29 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
   }
 
   async function updateAttendance(studentId: number, status: "present" | "absent" | "od") {
+    setBusy(true);
     await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ studentId, day: date, status })
     });
     await loadAll();
+    setBusy(false);
   }
 
   async function decideOd(id: number, decision: "approved" | "rejected") {
+    setBusy(true);
     await fetch(`/api/od-requests/${id}/decision`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ decision })
     });
     await loadAll();
+    setBusy(false);
   }
 
   async function logout() {
+    setBusy(true);
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/";
   }
@@ -295,6 +347,8 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
         </div>
       </div>
 
+      {loadingData ? <p className="message-banner">Loading dashboard data...</p> : null}
+
       <div className="grid-2">
         <div className="card">
           <h3>Today Overview</h3>
@@ -313,6 +367,48 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
       <div className="card">
         <h2>Take Attendance (10s Scan)</h2>
         <p>Date: {date}</p>
+        <div className="form-grid" style={{ marginBottom: 8 }}>
+          <label>
+            Scan Duration (seconds)
+            <input
+              type="number"
+              min={3}
+              max={60}
+              value={scanDurationSec}
+              onChange={(e) => setScanDurationSec(Number(e.target.value || 10))}
+              placeholder="10"
+            />
+          </label>
+          <label>
+            Class / Section
+            <input
+              value={scanSection}
+              onChange={(e) => setScanSection(e.target.value)}
+              placeholder="e.g. A"
+            />
+          </label>
+          <label>
+            Passing Out Year
+            <input
+              type="number"
+              value={scanYear}
+              onChange={(e) => setScanYear(e.target.value ? Number(e.target.value) : "")}
+              placeholder="e.g. 2027"
+            />
+          </label>
+          <label>
+            Department
+            <input
+              value={scanDepartment}
+              onChange={(e) => setScanDepartment(e.target.value)}
+              placeholder="e.g. CSE"
+            />
+          </label>
+        </div>
+        <p style={{ marginTop: 0 }}>
+          Selected filter {"->"} Class: <strong>{scanSection || "All"}</strong>, Year:{" "}
+          <strong>{scanYear || "All"}</strong>, Department: <strong>{scanDepartment || "All"}</strong>
+        </p>
         <button disabled={busy} onClick={startAttendanceScan}>
           {busy && scanMode ? `Scanning... ${scanSecondsLeft}s` : "Take Attendance"}
         </button>
@@ -322,25 +418,44 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
           </div>
         ) : null}
         {scanReport.length > 0 ? (
-          <table style={{ marginTop: 12 }}>
-            <thead>
-              <tr>
-                <th>Roll</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scanReport.map((row) => (
-                <tr key={row.rollNumber}>
-                  <td>{row.rollNumber}</td>
-                  <td>
-                    <span className={statusBadgeClass(row.status)}>{row.status}</span>
-                  </td>
+          <div style={{ marginTop: 14 }}>
+            <h3 style={{ marginBottom: 8 }}>Latest Scan Report</h3>
+            <div className="grid-2" style={{ marginBottom: 10 }}>
+              <div className="card" style={{ margin: 0 }}>
+                <strong>Present</strong>
+                <p style={{ margin: 0 }}>{scanSummary?.present ?? 0}</p>
+              </div>
+              <div className="card" style={{ margin: 0 }}>
+                <strong>OD</strong>
+                <p style={{ margin: 0 }}>{scanSummary?.od ?? 0}</p>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <strong>Absent</strong>
+              <p style={{ margin: 0 }}>{scanSummary?.absent ?? 0}</p>
+            </div>
+            <table style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>Roll Number</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : null}
+              </thead>
+              <tbody>
+                {scanReport.map((row) => (
+                  <tr key={row.rollNumber}>
+                    <td>{row.rollNumber}</td>
+                    <td>
+                      <span className={statusBadgeClass(row.status)}>{row.status.toUpperCase()}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p style={{ marginTop: 12 }}>No scan report yet for this date/filter.</p>
+        )}
         {scanHistory.length > 0 ? (
           <div style={{ marginTop: 16 }}>
             <h3>Stored Scan Reports ({date})</h3>
@@ -357,7 +472,7 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
                     </tr>
                   </thead>
                   <tbody>
-                    {(scan.report_json || []).map((row) => (
+                    {((Array.isArray(scan.report_json) ? scan.report_json : scan.report_json.rows || []) || []).map((row) => (
                       <tr key={`${scan.id}-${row.rollNumber}`}>
                         <td>{row.rollNumber}</td>
                         <td>
@@ -381,9 +496,8 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
           <input name="section" placeholder="Section" required />
           <input name="department" placeholder="Department" required />
           <input name="passingOutYear" type="number" placeholder="Passing out year" required />
-          <input name="samples" type="number" min={10} defaultValue={20} placeholder="Photo samples" required />
           <button type="submit" disabled={busy}>
-            {busy ? "Processing..." : "Create Student + Capture Photos"}
+            {busy ? "Creating..." : "Create Student"}
           </button>
         </form>
         {message ? <p className="message-banner">{message}</p> : null}
