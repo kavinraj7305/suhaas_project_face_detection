@@ -1,7 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRef } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+
+/** Wait this long after filter typing stops before refetching (avoids API spam per keystroke). */
+const FILTER_DEBOUNCE_MS = 450;
 
 type Student = {
   id: number;
@@ -79,6 +81,10 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
   const [scanSection, setScanSection] = useState("");
   const [scanDepartment, setScanDepartment] = useState("");
   const [scanYear, setScanYear] = useState<number | "">("");
+  /** Applied to API fetches only after debounce; inputs stay live for the Take Attendance action. */
+  const [appliedSection, setAppliedSection] = useState("");
+  const [appliedDepartment, setAppliedDepartment] = useState("");
+  const [appliedYear, setAppliedYear] = useState<number | "">("");
   const [scanReport, setScanReport] = useState<ScanStatusRow[]>([]);
   const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
   const [scanHistory, setScanHistory] = useState<StoredScan[]>([]);
@@ -95,9 +101,9 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
         fetch(`/api/attendance?day=${date}`),
         fetch("/api/od-requests"),
         fetch(
-          `/api/attendance/scan?day=${date}&section=${encodeURIComponent(scanSection)}&department=${encodeURIComponent(
-            scanDepartment
-          )}&passingOutYear=${scanYear || 0}`
+          `/api/attendance/scan?day=${date}&section=${encodeURIComponent(appliedSection)}&department=${encodeURIComponent(
+            appliedDepartment
+          )}&passingOutYear=${appliedYear || 0}`
         )
       ]);
       const studentsData = await studentsRes.json();
@@ -117,9 +123,18 @@ export default function TeacherDashboard({ teacherName }: { teacherName: string 
   }
 
   useEffect(() => {
+    const id = window.setTimeout(() => {
+      setAppliedSection(scanSection);
+      setAppliedDepartment(scanDepartment);
+      setAppliedYear(scanYear);
+    }, FILTER_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [scanSection, scanDepartment, scanYear]);
+
+  useEffect(() => {
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, scanSection, scanDepartment, scanYear]);
+  }, [date, appliedSection, appliedDepartment, appliedYear]);
 
   async function addStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
