@@ -1,4 +1,5 @@
 import argparse
+import time
 from pathlib import Path
 
 import cv2
@@ -48,6 +49,46 @@ def build_stages(total_samples: int) -> list[tuple[str, int]]:
     return stages
 
 
+def center_crop(frame, scale: float = 0.65):
+    height, width = frame.shape[:2]
+    crop_w = int(width * scale)
+    crop_h = int(height * scale)
+    x1 = max(0, (width - crop_w) // 2)
+    y1 = max(0, (height - crop_h) // 2)
+    x2 = min(width, x1 + crop_w)
+    y2 = min(height, y1 + crop_h)
+    return frame[y1:y2, x1:x2]
+
+
+def open_camera(preferred_index: int) -> tuple[cv2.VideoCapture, int]:
+    candidate_indices = [preferred_index, 0, 1, 2]
+    seen: set[int] = set()
+    unique_indices = []
+    for idx in candidate_indices:
+        if idx not in seen:
+            unique_indices.append(idx)
+            seen.add(idx)
+
+    backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF]
+    for idx in unique_indices:
+        for backend in backends:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                return cap, idx
+            cap.release()
+
+    # Final fallback to OpenCV default backend.
+    for idx in unique_indices:
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            return cap, idx
+        cap.release()
+
+    raise RuntimeError(
+        "Unable to open webcam. Try closing Zoom/Teams/Camera app or pass --camera-index 1."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Capture face images for one person into dataset/<name>/"
@@ -59,14 +100,35 @@ def main() -> None:
         default=10,
         help="Number of cropped face images to save (default: 10)",
     )
+    parser.add_argument(
+        "--camera-index",
+        type=int,
+        default=0,
+        help="Preferred camera index (default: 0)",
+    )
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Disable cv2.imshow preview window (useful for headless OpenCV builds)",
+    )
+    parser.add_argument(
+        "--max-seconds",
+        type=int,
+        default=120,
+        help="Maximum capture duration before auto-stop (default: 120)",
+    )
+    parser.add_argument(
+        "--fallback-center-crop",
+        action="store_true",
+        help="If no face is detected, save center crop fallback (useful for web capture)",
+    )
     args = parser.parse_args()
 
     person_dir = Path("dataset") / args.name.strip().lower()
     person_dir.mkdir(parents=True, exist_ok=True)
 
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        raise RuntimeError("Unable to open webcam.")
+    cap, used_camera_index = open_camera(args.camera_index)
+    print(f"Using camera index: {used_camera_index}")
 
     frontal_cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
     profile_cascade_path = cv2.data.haarcascades + "haarcascade_profileface.xml"
@@ -81,10 +143,21 @@ def main() -> None:
     frame_id = 0
     stage_index = 0
     stage_saved = 0
-    print("Press 'q' to quit early.")
-    print("Follow the prompts shown on screen for better dataset quality.")
+    started_at = time.monotonic()
+    if args.no_preview:
+        print("Running in no-preview mode.")
+        print("Keep your face visible until all samples are captured.")
+    else:
+        print("Press 'q' to quit early.")
+        print("Follow the prompts shown on screen for better dataset quality.")
 
     while saved < args.samples:
+        elapsed = time.monotonic() - started_at
+        if elapsed > args.max_seconds:
+            raise RuntimeError(
+                f"Capture timeout after {args.max_seconds}s. Saved {saved}/{args.samples} images."
+            )
+
         ok, frame = cap.read()
         if not ok:
             print("Failed to read frame, retrying...")
@@ -122,41 +195,57 @@ def main() -> None:
                 if stage_saved >= stage_target and stage_index < len(stages) - 1:
                     stage_index += 1
                     stage_saved = 0
+        elif args.fallback_center_crop and frame_id % 8 == 0 and saved < args.samples:
+            # Fallback path for headless/web mode where face detector may miss often.
+            face_crop = center_crop(frame)
+            out_path = person_dir / f"img_{saved + 1:03d}.jpg"
+            cv2.imwrite(str(out_path), face_crop)
+            saved += 1
+            stage_saved += 1
+            print(
+                f"Saved {out_path} ({saved}/{args.samples}) "
+                f"[{stage_prompt}: {stage_saved}/{stage_target}] [fallback]"
+            )
+            if stage_saved >= stage_target and stage_index < len(stages) - 1:
+                stage_index += 1
+                stage_saved = 0
 
-        cv2.putText(
-            frame,
-            f"{args.name}: {saved}/{args.samples}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.9,
-            (60, 220, 60),
-            2,
-        )
-        cv2.putText(
-            frame,
-            f"Prompt: {stage_prompt} ({stage_saved}/{stage_target})",
-            (10, 70),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (80, 200, 255),
-            2,
-        )
-        cv2.putText(
-            frame,
-            "Tip: hold still for 1 sec when prompt changes",
-            (10, 105),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 255, 255),
-            1,
-        )
-        cv2.imshow("Register Faces", frame)
+        if not args.no_preview:
+            cv2.putText(
+                frame,
+                f"{args.name}: {saved}/{args.samples}",
+                (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (60, 220, 60),
+                2,
+            )
+            cv2.putText(
+                frame,
+                f"Prompt: {stage_prompt} ({stage_saved}/{stage_target})",
+                (10, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (80, 200, 255),
+                2,
+            )
+            cv2.putText(
+                frame,
+                "Tip: hold still for 1 sec when prompt changes",
+                (10, 105),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                1,
+            )
+            cv2.imshow("Register Faces", frame)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
     cap.release()
-    cv2.destroyAllWindows()
+    if not args.no_preview:
+        cv2.destroyAllWindows()
     print("Done. Now run: python build_embeddings.py")
 
 

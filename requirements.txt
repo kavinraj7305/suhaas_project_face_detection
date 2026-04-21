@@ -1,4 +1,7 @@
-opencv-python
-deepface
-numpy
-pandas
+opencv-python==4.10.0.84
+deepface==0.0.93
+numpy==1.26.4
+pandas==2.2.2
+tensorflow-intel==2.15.1; platform_system == "Windows"
+tensorflow==2.15.1; platform_system != "Windows"
+tf-keras==2.15.1
